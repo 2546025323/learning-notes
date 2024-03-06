@@ -522,6 +522,38 @@ public User getUser(@PathVariable Long userId) {
 }
 ```
 
+## SpringBoot
+
+### 简介
+
+### maven坐标
+
+### 常用注解及示例
+
+#### @SpringBootApplication
+
+`@SpringBootApplication` 是 Spring Boot 框架中一个重要的注解，它是一个复合注解，包含了以下三个注解：
+
+1. `@SpringBootConfiguration`：表示这是一个 Spring 配置类，与传统的 `@Configuration` 注解作用相同，用于创建 Bean 定义。
+2. `@EnableAutoConfiguration`：启用自动配置功能，这是 Spring Boot 的核心特性之一。它会根据项目类路径中的依赖、项目的Java版本以及其他一些因素，自动配置Spring容器以满足应用的基本功能需求，如数据库连接、Web服务器配置等。
+3. `@ComponentScan`（默认扫描 basePackages = {"com.example.myapp"}）：启用组件扫描，查找并注册带有 `@Component`、`@Service`、`@Repository` 或 `@Controller` 等注解的类到 Spring 容器中。
+
+在 Spring Boot 应用程序中，通常只需要在主启动类上添加 `@SpringBootApplication` 注解即可快速搭建起一个基于 Spring Boot 的应用程序。
+
+示例
+
+```java
+@SpringBootApplication
+public class MyAppApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyAppApplication.class, args);
+    }
+}
+```
+
+
+
 ## MyBatis / MyBatisPlus
 
 ### 简介
