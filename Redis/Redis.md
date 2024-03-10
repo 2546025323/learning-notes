@@ -45,7 +45,7 @@ yum -y install gcc-c++
 下载命令
 
 ```
-wget https://download.redis.io/releases/redis-7.0.0.tar.gz
+wget https://download.redis.io/releases/redis-7.0.15.tar.gz
 ```
 
 ![1709710413450](assets/1709710413450.png)
@@ -53,7 +53,7 @@ wget https://download.redis.io/releases/redis-7.0.0.tar.gz
 2.在/opt目录下解压redis
 
 ```
-tar -zxvf redis7.0.15.tar.gz
+tar -zxvf redis-7.0.15.tar.gz
 ```
 
 解压后的目录
@@ -964,5 +964,176 @@ Pipeline是为了解决RTT（**Round Trip Time(简称RTT,数据包往返于两�
 
 - pipeline缓冲的指令只是会依次执行，不保证原子性，如果执行中指令发生异常，将会继续执行后续的指令
 - 使用pipeline组装的命令个数不能太多，不然数据量过大客户端阻塞时间可能过久，同时服务端也被迫回复一个队列答复，占用很多内存
+
+### 发布订阅
+
+#### 简介
+
+一种消息通信模式，发送者（PUBLISH）发送消息，订阅者（SUBSCRIBE）接收消息，可以实现进程间的消息传递。
+
+不推荐使用Redis原生的PUB/SUB，专业的事交给专业的人做。
+
+### 复制（Replica）
+
+#### 简介
+
+就是主从复制，master以写为主，slave以读为主。当master数据变化的时候，自动将新的数据以异步方式同步到其他slave数据库。具有读写分离、容灾恢复、数据备份、水平扩容支持高并发等特性。
+
+#### 基本操作命令
+
+```
+//可以查看复制节点的主从关系和配置信息
+info replication
+
+//一般写入进redis.conf配置文件内。host：主机ip。port：主机中redis的端口号。
+replicaof host port
+
+//在运行期间修改slave节点的信息，如果该数据库已经是某个主数据库的从数据库，那么会停止和原主数据的同步关系，转而和新的主数据库同步。
+slaveof host port
+
+//使当前数据库停止与其他数据库的同步，转成主数据库。
+slaveof no one
+```
+
+#### 示例
+
+##### 架构说明
+
+三台Redis服务器，三边网络相互能ping，且不会被防火墙拦截。
+
+![1710065681542](assets/1710065681542.png)
+
+##### 配置文件
+
+配从（库）不配主（库）。以redis6379.conf为例。
+
+1. 开启daemonize yes
+
+![1710066169229](assets/1710066169229.png)
+
+2. 注释掉bind 127.0.0.1 - : : 1
+
+![1710066327997](assets/1710066327997.png)
+
+3. protected-mode no
+
+![1710066339355](assets/1710066339355.png)
+
+4. 指定端口
+
+![1710066350829](assets/1710066350829.png)
+
+5. 指定当前工作目录，dir
+
+![1710066360326](assets/1710066360326.png)
+
+6. pid文件名字，pidfile
+
+![1710066370506](assets/1710066370506.png)
+
+7. log文件名字，logfile
+
+![1710066397577](assets/1710066397577.png)
+
+8. requirepass
+
+![1710066407330](assets/1710066407330.png)
+
+9. dump.rdb名字
+
+![1710066418230](assets/1710066418230.png)
+
+10. aof文件，appendfilename
+
+![1710066429805](assets/1710066429805.png)
+
+11. 从机访问主机的通行密码masterauth，从机配主机不配。
+
+![1710066442672](assets/1710066442672.png)
+
+##### 一主二仆
+
+###### 方案1：配置文件固定写死
+
+配置redis.conf文件。先启动master在启动slave。
+
+主从关系查看
+
+- 主机或从机的日志文件
+- **info replication** 命令查看
+
+从机可以执行写命令吗？
+
+> 不可以
+
+从机切入点问题？
+
+> 首次一锅端，全量复制，后续跟随，master写，slave跟
+
+主机shutdown后情况如何？从机是上位还是原地待命 ？
+
+> 从机不动，原地待命，从机数据可以正常使用；等待主机重启动归来
+
+主机shutdown后，重启后主从关系还在吗？
+
+> 保持原主从关系
+
+###### 方案2：命令操作手动指定
+
+在预设的从机上面执行命令
+
+```
+slaveof hostIP port
+```
+
+##### 薪火相传
+
+- 上一个slave可以是下一个slave的master，slave同样可以接收其他slaves的链接和同步请求，那么该slave作为了链条中下一个的master，可以有效减轻主master的写压力。
+- 中途变更转向：会清除之前的数据，重新建立拷贝最新的
+- 命令：`slaveof hostIP port`
+
+##### 反客为主
+
+使当前数据库停止与其他数据库的同步，转为主数据库。但之前存在的数据不丢失。
+
+```
+slaveof no one
+```
+
+#### 原理和工作流程
+
+slave启动，同步初请
+
+> slave启动成功连接到master后会发送一个sync命令。slave首次全新连接master，一次完全同步（全量复制）将会被自动执行，slave自身原有数据会被master数据覆盖清除。
+
+首次连接，全量复制
+
+> master节点收到sync命令后会开始在后台保存快照（即RDB持久化，主从复制时会触发RDB），同时收集所有接收到的用于修改数据集命令缓存起来，master节点执行RDB持久化后，master将rdb快照文件和所有缓存的命令发送到所有slave，以完成一次完全同步。
+>
+> 而slave服务将在接收到数据库文件数据后，将其存盘并加载到内存中，从而完成复制初始化
+
+心跳持续，保持通信
+
+> master发出PING包的周期，默认是10秒
+>
+> redis.conf文件中：repl-ping-replica-period 10
+
+进入平稳，增量复制
+
+> Master继续将性能的所有收集到的修改命令自动一次传给slave，完成同步
+
+从机下线，重连续传
+
+> master会检查backlog里面的offset，master和slave都会保存一个复制的offset还有一个masterID，offset时保存在backlog中的。Master只会把已经复制的offset后面的数据复制给slave，类似断点续传。
+
+#### 劣势
+
+复制延时，信号衰减。由于所有的写操作都是先在Master上操作，然后同步更新到Slave上，所以从Master同步到Slave机器有一定的延迟，当系统很繁忙的时候，延迟问题会更加严重，Slave机器数量的增加也会使这个问题更加严重。
+
+master挂了的话，默认情况下，不会在slave节点中自动重选一个master。
+
+### 哨兵（sentinel）
+
+
 
 ## 高阶篇
