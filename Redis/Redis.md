@@ -1134,6 +1134,152 @@ master挂了的话，默认情况下，不会在slave节点中自动重选一个
 
 ### 哨兵（sentinel）
 
+#### 简介
 
+巡查监控后台master主机是否故障，如果故障了根据投票数自动将某一个从库转化为新主库，继续对外服务。
+
+1、监控redis运行状态，包括master和slave
+
+2、当master down机，能自动将slave切换成新master
+
+- 主从监控：监控主从redis库运行是否正常
+- 消息通知：哨兵可以将故障转移的结果发送给客户端
+- 故障转移：如果master异常，则会进行主从切换，将其中一个slave作为新master
+- 配置中心：客户端通过连接哨兵来获得当前redis服务器的主节点地址
+
+#### 示例
+
+Redis Sentinel架构：**一主二从三哨兵**。先启动redis主从机，在启动哨兵。
+
+![1710157005335](assets/1710157005335.png)
+
+##### 重要参数说明
+
+```
+//设置要监控的master服务器，quorum表示最少有几个哨兵认可客观下线，同意故障迁移的法定票数
+sentinel monitor <master-name> <ip> <redis-port> <quorum>
+
+//master设置了密码，连接master服务的密码
+sentinel auth-pass <master-name> <password>
+```
+
+以sentinel26379.conf为例
+
+```
+bind 0.0.0.0
+daemonize yes
+protected-mode no
+port 26380
+logfile "/myredis/sentinel26380.log"
+pidfile /var/run/redis-sentinel26380.pid
+dir "/myredis"
+sentinel monitor mymaster 192.168.111.169 6379 2
+sentinel auth-pass mymaster 111111
+```
+
+报错*`master_link_status:down`*
+
+> redis.conf配置文件内没有配置`masterauth`项访问密码。
+
+##### 启动哨兵
+
+```
+redis-sentinel sentinel26379.conf --sentinel
+redis-sentinel sentinel26380.conf --sentinel
+redis-sentinel sentinel26381.conf --sentinel
+```
+
+##### 原有的master挂了
+
+**两台从机数据是否ok**
+
+> 数据没问题
+
+**是否会从剩下的2台机器上选出新的master**
+
+> 会，通过哨兵投票重新选择master
+
+**之前down机的master机器重启回来，谁将会是新老大？会不会双master冲突**
+
+> 重连回来的原master将变成slave。
+
+##### 配置文件的改动
+
+- 文件的内容，在运行期间会被sentinel动态进行更改
+- Master-Slave切换后，master_redis.conf、slave_reids.conf的内容都会发生改变，即master_redis.conf中会多一行slaveof的配置，sentinel.conf的监控目标会随之调换。
+
+#### 哨兵运行流程和选举原理
+
+当一个主从配置中的master失效后，sentinel可以选举出一个新的master，用于自动接替原master的工作，主从配置中的其他redis服务器自动指向新的master同步数据。一般建议sentinel采取**奇数**台，防止某一台sentinel无法连接到master导致误切换。
+
+##### 运行流程，故障切换
+
+###### **1. SDown主观下线（Subjectively Down）**
+
+所谓主观下线（Subjectively Down， 简称 SDOWN）指的是单个Sentinel实例对服务器做出的下线判断，即单个sentinel认为某个服务下线（有可能是接收不到订阅，之间的网络不通等等原因）。主观下线就是说如果服务器在[sentinel down-after-milliseconds]给定的毫秒数之内没有回应PING命令或者返回一个错误消息， 那么这个Sentinel会主观的(单方面的)认为这个master不可以用了。
+
+> sentinel down-after-milliseconds <masterName> <timeout>
+
+ 表示master被当前sentinel实例认定为失效的间隔时间，这个配置其实就是进行主观下线的一个依据
+
+master在多长时间内一直没有给Sentine返回有效信息，则认定该master主观下线。也就是说如果多久没联系上redis-servevr，认为这个redis-server进入到失效（SDOWN）状态。
+
+![1710158626264](assets/1710158626264.png)
+
+###### **2. ODown客观下线（Objectively Down）**
+
+ODown需要一定数量的sentinel，即多个哨兵达成一致意见才能认为一个master客观上已经宕机挂了。
+
+![1710158757831](assets/1710158757831.png)
+
+**quorum这个参数是进行客观下线的一个依据**，法定人数/法定票数
+
+意思是至少有quorum个sentinel认为这个master有故障才会对这个master进行下线以及故障转移。因为有的时候，某个sentinel节点可能因为自身网络原因导致无法连接master，而此时master并没有出现故障，所以这就需要多个sentinel都一致认为该master有问题，才可以进行下一步操作，这就保证了公平性和高可用。
+
+###### **3. 选举出领导者哨兵（哨兵中选出兵王）**
+
+当主节点被判断客观下线后，各个哨兵节点会进行协商，先选举出一个领导者哨兵节点（兵王），并由该领导者节点进行`failover`（故障迁移）。
+
+领导者哨兵通过**Raft算法**产生。
+
+![1710159119388](assets/1710159119388.png)
+
+###### **4. 由兵王开始推动故障切换流程并选出一个新master**
+
+**1.某个Slave被选中成为新Master**
+
+选出新master的规则，剩余slave节点健康前提下
+
+> redis.conf文件中，优先级slave-priority或者replica-priority最高的从节点（数字越小优先级越高）
+>
+> 复制偏移位置offset最大的从节点
+>
+> 最小Run ID的从节点
+
+![1710159352769](assets/1710159352769.png)
+
+**2.一朝天子一朝臣，换个码头重新拜**
+
+执行`slaveof no one`命令让选出来的从节点成为新的主节点，并通过`slaveof`命令让其他节点成为其从节点。
+
+`Sentinel leader`会对选举出的新`master`执行`slaveof no one`操作，将其提升为`master`节点
+
+`Sentinel leader`向其他`slave`发送命令，让剩余的`slave`成为新的`master`节点的`slave`
+
+**3.老master回来也认怂**
+
+将之前已下线的老`master`设置为新选出的新`master`的从节点，当老`master`重新上线后，他会成为新`master`的从节点。
+
+`Sentinel leader`会让原来的`master`降级为`slave`并恢复正常工作
+
+**上述的failover操作均有sentinel自己独自完成，完全无需人工干预。**
+
+### 哨兵使用建议
+
+- 哨兵节点的数量应为多个，哨兵本身应该集群，保证高可用
+- 哨兵节点的数量应该是奇数
+- 各个哨兵节点的配置应一致
+- 如果哨兵节点部署在Docker等容器里面，尤其要注意端口的正确映射
+- 哨兵集群+主从复制，并不能保证数据零丢失
 
 ## 高阶篇
