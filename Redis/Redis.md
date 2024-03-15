@@ -1743,13 +1743,294 @@ Lettuce是一个Redis的Java驱动包。
 
 ##### 入门案例
 
+```java
+package com.my.redis7.demo;
+
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisURI;
+import io.lettuce.core.SortArgs;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
+import lombok.extern.slf4j.Slf4j;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * @author hxm
+ * @date 2024/3/13 20:26
+ * @description
+ */
+@Slf4j
+public class LettuceDemo {
+    public static void main(String[] args) {
+        //1. 使用构建器RedisURI.builder()
+        RedisURI uri = RedisURI.builder().withHost("192.168.234.129").withPort(6379).withAuthentication("default", "0108").build();
+        //2. 创建连接客户端
+        RedisClient client = RedisClient.create(uri);
+        StatefulRedisConnection conn = client.connect();
+        //3. 操作命令
+        RedisCommands commands = conn.sync();
+        List<String> keys = commands.keys("*");
+        for (String key : keys) {
+            System.out.println("key = " + key);
+        }
+        //String
+        System.out.println("--------------string-----------------");
+        commands.set("k1", "v111");
+        System.out.println("k1 = " + commands.get("k1"));
+        System.out.println("--------------string-----------------");
+        //list
+        System.out.println("--------------list-----------------");
+        commands.lpush("mylist", "list1", "list2", "list3");
+        List<String> mylist = commands.lrange("mylist", 0, -1);
+        for (String list : mylist) {
+            System.out.println("list = " + list);
+        }
+        System.out.println("--------------list-----------------");
+        //hash
+        System.out.println("--------------hash-----------------");
+        Map<String, String> map = new HashMap<>();
+        map.put("name", "zhangsan");
+        map.put("age", "23");
+        map.put("email", "1234123@qq.com");
+        commands.hset("user", map);
+
+        Map<String, String> user = commands.hgetall("user");
+        for (String filed : user.keySet()) {
+            System.out.println("field = " + filed);
+
+        }
+        System.out.println("--------------hash-----------------");
+        //set
+        System.out.println("--------------set-----------------");
+        commands.sadd("myset", "set1", "set2", "set3");
+        Set<String> myset = commands.smembers("myset");
+        for (String set : myset) {
+            System.out.println("myset = " + set);
+        }
+        System.out.println("--------------set-----------------");
+        //zset
+        System.out.println("--------------zset-----------------");
+        commands.zadd("myzset", 10d, "z1", 12.0, "z2", 55d, "z3");
+        List<String> myzset = commands.zrange("myzset", 0, -1);
+        for (String z : myzset) {
+            System.out.println("zset = " + z);
+        }
+        System.out.println("--------------zset-----------------");
+
+        //sort
+        SortArgs sortArgs = new SortArgs();
+        sortArgs.alpha();
+        sortArgs.desc();
+
+        List<String> mylist1 = commands.sort("mylist", sortArgs);
+        for (String s : mylist1) {
+            System.out.println("sort = " + s);
+        }
+
+        //4. 关闭资源
+        conn.close();
+        client.shutdown();
+
+    }
+}
 ```
-
-```
-
-
 
 #### 集成RedisTemplate
+
+##### 连接单机
+
+###### maven坐标
+
+```xml
+<!--SpringBoot与Redis整合依赖-->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-pool2</artifactId>
+</dependency>
+```
+
+###### yml配置
+
+```yml
+#单机版
+spring:
+    redis:
+        database: 0
+        host: 192.168.234.129
+        port: 6379
+        lettuce:
+          pool:
+            max-active: 8
+            max-wait: -1ms
+            max-idle: 8
+            min-idle: 0
+```
+
+SwaggerConfig
+
+```java
+@Configuration
+@EnableSwagger2
+public class SwaggerConfig
+{
+    @Value("${spring.swagger2.enabled}")
+    private Boolean enabled;
+
+    @Bean
+    public Docket createRestApi() {
+        return new Docket(DocumentationType.SWAGGER_2)
+                .apiInfo(apiInfo())
+                .enable(enabled)
+                .select()
+                .apis(RequestHandlerSelectors.basePackage("com.my.redis7")) //你自己的package
+                .paths(PathSelectors.any())
+                .build();
+    }
+    public ApiInfo apiInfo() {
+        return new ApiInfoBuilder()
+                .title("springboot利用swagger2构建api接口文档 "+"\t"+ DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now()))
+                .description("springboot+redis整合,有问题给管理员阳哥邮件:zzyybs@126.com")
+                .version("1.0")
+                .termsOfServiceUrl("https://www.atguigu.com/")
+                .build();
+    }
+}
+```
+
+service
+
+```java
+@Service
+@Slf4j
+public class OrderService {
+
+    public static final String ORDER_KEY = "order:";
+
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    public void addOrder(){
+        int keyId = ThreadLocalRandom.current().nextInt(1000) + 1;
+        String orderNo = UUID.randomUUID().toString();
+        redisTemplate.opsForValue().set(ORDER_KEY + keyId, "京东订单" + orderNo);
+    }
+
+    public String getOrderById(Integer id){
+
+        return (String) redisTemplate.opsForValue().get(ORDER_KEY + id);
+    }
+}
+```
+
+controller
+
+```java
+@RestController
+@Slf4j
+@Api(tags = "订单接口")
+public class OrderController {
+    @Autowired
+    private OrderService orderService;
+
+    @PostMapping("/order/add")
+    @ApiOperation("添加订单")
+    public void addOrder(){
+        orderService.addOrder();
+    }
+
+    @GetMapping("/order/{orderId}")
+    @ApiOperation("获取订单编号")
+    public String getOrder(@PathVariable Integer orderId){
+        return orderService.getOrderById(orderId);
+    }
+}
+```
+
+如果使用RedisTemplate，在redis端会出现序列化问题。RedisTemplate默认使用的是**JDK序列化方式**，解决方法
+
+1. 编写RedisConfig配置项
+
+   ```Java
+   @Configuration
+   public class RedisConfig
+   {
+       /**
+        * redis序列化的工具配置类，下面这个请一定开启配置
+        * 127.0.0.1:6379> keys *
+        * 1) "ord:102"  序列化过
+        * 2) "\xac\xed\x00\x05t\x00\aord:102"   野生，没有序列化过
+        * this.redisTemplate.opsForValue(); //提供了操作string类型的所有方法
+        * this.redisTemplate.opsForList(); // 提供了操作list类型的所有方法
+        * this.redisTemplate.opsForSet(); //提供了操作set的所有方法
+        * this.redisTemplate.opsForHash(); //提供了操作hash表的所有方法
+        * this.redisTemplate.opsForZSet(); //提供了操作zset的所有方法
+        * @param lettuceConnectionFactory
+        * @return
+        */
+       @Bean
+       public RedisTemplate<String, Object> redisTemplate(LettuceConnectionFactory lettuceConnectionFactory)
+       {
+           RedisTemplate<String,Object> redisTemplate = new RedisTemplate<>();
+   
+           redisTemplate.setConnectionFactory(lettuceConnectionFactory);
+           //设置key序列化方式string
+           redisTemplate.setKeySerializer(new StringRedisSerializer());
+           //设置value的序列化方式json，使用GenericJackson2JsonRedisSerializer替换默认序列化
+           redisTemplate.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+   
+           redisTemplate.setHashKeySerializer(new StringRedisSerializer());
+           redisTemplate.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+   
+           redisTemplate.afterPropertiesSet();
+   
+           return redisTemplate;
+       }
+   }
+   ```
+
+2. 将RedisTemplate改用成StringRedisTemplate。
+
+   ```java
+   @Resource
+   private StringRedisTemplate stringRedisTemplate;
+   ```
+
+##### 连接集群
+
+```properties
+# ========================redis集群=====================
+spring.redis.password=111111
+# 获取失败 最大重定向次数
+spring.redis.cluster.max-redirects=3
+spring.redis.lettuce.pool.max-active=8
+spring.redis.lettuce.pool.max-wait=-1ms
+spring.redis.lettuce.pool.max-idle=8
+spring.redis.lettuce.pool.min-idle=0
+#支持集群拓扑动态感应刷新,自适应拓扑刷新是否使用所有可用的更新，默认false关闭
+spring.redis.lettuce.cluster.refresh.adaptive=true
+#定时刷新,2秒
+spring.redis.lettuce.cluster.refresh.period=2000
+spring.redis.cluster.nodes=192.168.111.175:6381,192.168.111.175:6382,192.168.111.172:6383,192.168.111.172:6384,192.168.111.174:6385,192.168.111.174:6386
+```
+
+如果在application中不配置
+
+```properties
+#支持集群拓扑动态感应刷新,自适应拓扑刷新是否使用所有可用的更新，默认false关闭
+spring.redis.lettuce.cluster.refresh.adaptive=true
+#定时刷新,2秒
+spring.redis.lettuce.cluster.refresh.period=2000
+```
+
+则redis集群中，若有一台机器宕机后，java端无法感知redis的拓扑图发生改变，因此设置这段配置项，可以定时2秒刷新redis拓扑图结构，以防redis某台机器宕机而java端无法察觉。
 
 ## 高阶篇
 
