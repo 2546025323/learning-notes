@@ -44,7 +44,7 @@ yum -y install gcc-c++
 
 下载命令
 
-```
+```shell
 wget https://download.redis.io/releases/redis-7.0.15.tar.gz
 ```
 
@@ -52,7 +52,7 @@ wget https://download.redis.io/releases/redis-7.0.15.tar.gz
 
 2.在/opt目录下解压redis
 
-```
+```shell
 tar -zxvf redis-7.0.15.tar.gz
 ```
 
@@ -62,7 +62,7 @@ tar -zxvf redis-7.0.15.tar.gz
 
 3.进入目录
 
-```
+```shell
 cd redis-7.0.15
 ```
 
