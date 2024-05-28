@@ -2005,3 +2005,1153 @@ public String myRatelimitFallback(Integer id,Throwable t)
 }
 ```
 
+## 8. Sleuth（Micrometer）+ Zipkin分布式链路追踪
+
+### 分布式链路追踪
+
+在微服务框架中，一个由客户端发起的请求在后端系统中会经过多个不同的的服务节点调用来协同产生最后的请求结果，每一个前段请求都会形成一条复杂的分布式服务调用链路，链路中的任何一环出现高延时或错误都会引起整个请求最后的失败。
+
+在分布式与微服务场景下，我们需要解决如下问题：
+
+>  在大规模分布式与微服务集群下，如何实时观测系统的整体调用链路情况。
+>
+> 在大规模分布式与微服务集群下，如何快速发现并定位到问题。
+>
+> 在大规模分布式与微服务集群下，如何尽可能精确的判断故障对系统的影响范围与影响程度。
+>
+> 在大规模分布式与微服务集群下，如何尽可能精确的梳理出服务之间的依赖关系，并判断出服务之间的依赖关系是否合理。
+>
+> 在大规模分布式与微服务集群下，如何尽可能精确的分析整个系统调用链路的性能与瓶颈点。
+>
+> 在大规模分布式与微服务集群下，如何尽可能精确的分析系统的存储瓶颈与容量规划。
+
+ 上述问题就是我们的落地议题答案：
+
+> 分布式链路追踪技术要解决的问题，分布式链路追踪（Distributed Tracing），就是将一次分布式请求还原成调用链路，进行日志记录，性能监控并将一次分布式请求的调用情况集中展示。比如各个服务节点上的耗时、请求具体到达哪台机器上、每个服务节点的请求状态等等。
+
+### 新一代Spring Cloud Sleuth：Micrometer
+
+**官网：**https://micrometer.io/docs/tracing
+
+**Spring官网：**https://spring.io/projects/spring-cloud-sleuth#overview
+
+**github：**https://github.com/spring-cloud/spring-cloud-sleuth
+
+作用：将一次分布式请求还原成调用链路，进行日志记录和性能监控，并将一次分布式请求的调用情况通过zipkin集中web展示。
+
+#### 行业内其他成熟的分布式链路追踪技术
+
+<img src="./assets/image-20240521144957393.png" alt="image-20240521144957393" style="zoom:67%;" />
+
+### 分布式链路追踪原理
+
+一条链路追踪会在每个服务调用的时候加上Trace ID 和 Span ID
+
+链路通过TraceId唯一标识，
+
+Span标识发起的请求信息，各span通过parent id 关联起来 (Span:表示调用链路来源，通俗的理解span就是一次请求信息)
+
+<img src="./assets/image-20240521145116871.png" alt="image-20240521145116871" style="zoom:67%;" />
+
+简化版
+
+一条链路通过Trace Id唯一标识，Span标识发起的请求信息，各span通过parent id 关联起来
+
+<img src="./assets/image-20240521145601247.png" alt="image-20240521145601247" style="zoom:67%;" />
+
+| 1    | 第一个节点：Span ID = A，Parent ID = null，Service 1 接收到请求。 |
+| ---- | ------------------------------------------------------------ |
+| 2    | 第二个节点：Span ID = B，Parent ID= A，Service 1 发送请求到 Service 2 返回响应给Service 1 的过程。 |
+| 3    | 第三个节点：Span ID = C，Parent ID= B，Service 2 的 中间解决过程。 |
+| 4    | 第四个节点：Span ID = D，Parent ID= C，Service 2 发送请求到 Service 3 返回响应给Service 2 的过程。 |
+| 5    | 第五个节点：Span ID = E，Parent ID= D，Service 3 的中间解决过程。 |
+| 6    | 第六个节点：Span ID = F，Parent ID= C，Service 3 发送请求到 Service 4 返回响应给 Service 3 的过程。 |
+| 7    | 第七个节点：Span ID = G，Parent ID= F，Service 4 的中间解决过程。 |
+| 8    | 通过 Parent ID 就可找到父节点，整个链路即可以进行跟踪追溯了。 |
+
+### Zipkin
+
+**官网：**https://zipkin.io/
+
+**下载地址：**https://zipkin.io/pages/quickstart
+
+**ZipKin概述**
+
+Zipkin是一种分布式链路跟踪系统图形化的工具，Zipkin 是 Twitter 开源的分布式跟踪系统，能够收集微服务运行过程中的实时调用链路信息，并能够将这些调用链路信息展示到Web图形化界面上供开发人员分析，开发人员能够从ZipKin中分析出调用链路中的性能瓶颈，识别出存在问题的应用程序，进而定位问题和解决问题。
+
+**只有Sleuth（Micrometer），不使用Zipkin行不行？**
+
+说明：
+
+当没有配置 Sleuth 链路追踪的时候，INFO 信息里面是 [passjava-question,,,]，后面跟着三个空字符串。
+
+ 当配置了 Sleuth 链路追踪的时候，追踪到的信息是 [passjava-question,504a5360ca906016,e55ff064b3941956,false] ，第一个是 Trace ID，第二个是 Span ID。**只有日志没有图，观看不方便，不美观，so，**引入图形化Zipkin链路监控让你好看。
+
+**运行jar包**
+
+```sh
+java -jar zipkin-server-3.0.0-rc0-exec.jar
+```
+
+**运行控制台**
+
+```
+http://localhost:9411/
+```
+
+### 案例
+
+Micrometer：负责数据采样
+
+Zipkin：负责图形化展示
+
+#### 总体父工程POM
+
+由于Micrometer Tracing是一个门面工具自身并没有实现完整的链路追踪系统，具体的链路追踪另外需要引入的是第三方链路追踪系统的依赖：
+
+| 1    | micrometer-tracing-bom          | 导入链路追踪版本中心，体系化说明                             |
+| ---- | ------------------------------- | ------------------------------------------------------------ |
+| 2    | micrometer-tracing              | 指标追踪                                                     |
+| 3    | micrometer-tracing-bridge-brave | 一个Micrometer模块，用于与分布式跟踪工具 Brave 集成，以收集应用程序的分布式跟踪数据。Brave是一个开源的分布式跟踪工具，它可以帮助用户在分布式系统中跟踪请求的流转，它使用一种称为"跟踪上下文"的机制，将请求的跟踪信息存储在请求的头部，然后将请求传递给下一个服务。在整个请求链中，Brave会将每个服务处理请求的时间和其他信息存储到跟踪数据中，以便用户可以了解整个请求的路径和性能。 |
+| 4    | micrometer-observation          | 一个基于度量库 Micrometer的观测模块，用于收集应用程序的度量数据。 |
+| 5    | feign-micrometer                | 一个Feign HTTP客户端的Micrometer模块，用于收集客户端请求的度量数据。 |
+| 6    | zipkin-reporter-brave           | 一个用于将 Brave 跟踪数据报告到Zipkin 跟踪系统的库。         |
+
+ 补充包：spring-boot-starter-actuator  SpringBoot框架的一个模块用于监视和管理应用程序
+
+```xml
+
+<!--micrometer-tracing-bom导入链路追踪版本中心  1-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing-bom</artifactId>
+    <version>${micrometer-tracing.version}</version>
+    <type>pom</type>
+    <scope>import</scope>
+</dependency>
+<!--micrometer-tracing指标追踪  2-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing</artifactId>
+    <version>${micrometer-tracing.version}</version>
+</dependency>
+<!--micrometer-tracing-bridge-brave适配zipkin的桥接包 3-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing-bridge-brave</artifactId>
+    <version>${micrometer-tracing.version}</version>
+</dependency>
+<!--micrometer-observation 4-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-observation</artifactId>
+    <version>${micrometer-observation.version}</version>
+</dependency>
+<!--feign-micrometer 5-->
+<dependency>
+    <groupId>io.github.openfeign</groupId>
+    <artifactId>feign-micrometer</artifactId>
+    <version>${feign-micrometer.version}</version>
+</dependency>
+<!--zipkin-reporter-brave 6-->
+<dependency>
+    <groupId>io.zipkin.reporter2</groupId>
+    <artifactId>zipkin-reporter-brave</artifactId>
+    <version>${zipkin-reporter-brave.version}</version>
+</dependency>
+```
+
+#### 服务提供者8001
+
+POM
+
+```xml
+<!--micrometer-tracing指标追踪  1-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing</artifactId>
+</dependency>
+<!--micrometer-tracing-bridge-brave适配zipkin的桥接包 2-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing-bridge-brave</artifactId>
+</dependency>
+<!--micrometer-observation 3-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-observation</artifactId>
+</dependency>
+<!--feign-micrometer 4-->
+<dependency>
+    <groupId>io.github.openfeign</groupId>
+    <artifactId>feign-micrometer</artifactId>
+</dependency>
+<!--zipkin-reporter-brave 5-->
+<dependency>
+    <groupId>io.zipkin.reporter2</groupId>
+    <artifactId>zipkin-reporter-brave</artifactId>
+</dependency>
+```
+
+YML
+
+```yml
+# ========================zipkin===================
+management:
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+  tracing:
+    sampling:
+      probability: 1.0 #采样率默认为0.1(0.1就是10次只能有一次被记录下来)，值越大收集越及时。
+```
+
+新建业务类PayMicrometerController
+
+```java
+@RestController
+public class PayMicrometerController
+{
+    /**
+     * Micrometer(Sleuth)进行链路监控的例子
+     * @param id
+     * @return
+     */
+    @GetMapping(value = "/pay/micrometer/{id}")
+    public String myMicrometer(@PathVariable("id") Integer id)
+    {
+        return "Hello, 欢迎到来myMicrometer inputId:  "+id+" \t    服务返回:" + IdUtil.simpleUUID();
+    }
+}
+```
+
+#### Api接口
+
+```java
+@GetMapping(value = "/pay/micrometer/{id}")
+public String myMicrometer(@PathVariable("id") Integer id);
+```
+
+#### 服务调用者80
+
+POM
+
+```xml
+<!--micrometer-tracing指标追踪  1-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing</artifactId>
+</dependency>
+<!--micrometer-tracing-bridge-brave适配zipkin的桥接包 2-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-tracing-bridge-brave</artifactId>
+</dependency>
+<!--micrometer-observation 3-->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-observation</artifactId>
+</dependency>
+<!--feign-micrometer 4-->
+<dependency>
+    <groupId>io.github.openfeign</groupId>
+    <artifactId>feign-micrometer</artifactId>
+</dependency>
+<!--zipkin-reporter-brave 5-->
+<dependency>
+    <groupId>io.zipkin.reporter2</groupId>
+    <artifactId>zipkin-reporter-brave</artifactId>
+</dependency>
+```
+
+YML
+
+```yml
+# zipkin图形展现地址和采样率设置
+management:
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+  tracing:
+    sampling:
+      probability: 1.0 #采样率默认为0.1(0.1就是10次只能有一次被记录下来)，值越大收集越及时。
+```
+
+新建业务类OrderMicrometerController
+
+```java
+@RestController
+@Slf4j
+public class OrderMicrometerController
+{
+    @Resource
+    private PayFeignApi payFeignApi;
+
+    @GetMapping(value = "/feign/micrometer/{id}")
+    public String myMicrometer(@PathVariable("id") Integer id)
+    {
+        return payFeignApi.myMicrometer(id);
+    }
+}
+```
+
+测试
+
+## 9. Gateway新一代网关
+
+**spring官网：**https://docs.spring.io/spring-cloud-gateway/docs/4.0.4/reference/html/
+
+### 概述
+
+**简介**
+
+> Gateway是在Spring生态系统之上构建的API网关服务，基于Spring6，Spring Boot 3和Project Reactor等技术。它旨在为微服务架构提供一种简单有效的统一的 API 路由管理方式，并为它们提供跨领域的关注点，例如：安全性、监控/度量和恢复能力。
+
+**体系定位**
+
+<img src="./assets/image-20240523153836350.png" alt="image-20240523153836350" style="zoom:67%;" />
+
+**作用**
+
+- 反向代理
+- 鉴权
+- 流量控制
+- 熔断
+- 日志监控
+
+Spring Cloud Gateway组件的核心是一系列的过滤器，通过这些过滤器可以将客户端发送的请求转发(路由)到对应的微服务。 Spring Cloud Gateway是加在整个微服务最前沿的防火墙和代理器，隐藏微服务结点IP端口信息，从而加强安全保护。Spring Cloud Gateway本身也是一个微服务，需要注册进服务注册中心。
+
+<img src="./assets/image-20240523154002789.png" alt="image-20240523154002789" style="zoom:67%;" />
+
+### Gateway三大核心
+
+<img src="./assets/image-20240523154435257.png" alt="image-20240523154435257" style="zoom:67%;" />
+
+#### Route（路由）
+
+路由时构建网关的基本模块，它由ID，目标URI，一系列的断言和过滤器组成，如果断言（Predicate）为true则匹配该路由
+
+#### Predicate（断言）
+
+参考的是Java8的java.util.function.Predicate，开发人员可以匹配HTTP请求中的所有内容（例如请求头或请求参数），如果请求与断言相匹配则进行路由。
+
+#### Filter（过滤）
+
+指的是Spring框架中GatewayFilter的示例，使用过滤器，可以在请求被路由前或者之后对请求进行修改。
+
+### Gateway工作流程
+
+<img src="./assets/image-20240523155856336.png" alt="image-20240523155856336" style="zoom:67%;" />
+
+客户端向 Spring Cloud Gateway 发出请求。然后在 Gateway Handler Mapping 中找到与请求相匹配的路由，将其发送到 Gateway Web Handler。Handler 再通过指定的过滤器链来将请求发送到我们实际的服务执行业务逻辑，然后返回。
+
+过滤器之间用虚线分开是因为过滤器可能会在发送代理请求之前(Pre)或之后(Post)执行业务逻辑。
+
+在“pre”类型的过滤器可以做参数校验、权限校验、流量监控、日志输出、协议转换等;
+
+在“post”类型的过滤器中可以做响应内容、响应头的修改，日志的输出，流量监控等有着非常重要的作用。
+
+### 入门配置
+
+建Module：cloud-gateway9527
+
+POM
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.atguigu.cloud</groupId>
+        <artifactId>mscloudV5</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>cloud-gateway9527</artifactId>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+
+    <dependencies>
+        <!--gateway-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        <!--服务注册发现consul discovery,网关也要注册进服务注册中心统一管控-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-consul-discovery</artifactId>
+        </dependency>
+        <!-- 指标监控健康检查的actuator,网关是响应式编程删除掉spring-boot-starter-web dependency-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+YML
+
+```yml
+server:
+  port: 9527
+
+spring:
+  application:
+    name: cloud-gateway #以微服务注册进consul或nacos服务列表内
+  cloud:
+    consul: #配置consul地址
+      host: localhost
+      port: 8500
+      discovery:
+        prefer-ip-address: true
+        service-name: ${spring.application.name}
+```
+
+主启动
+
+```java
+@SpringBootApplication
+@EnableDiscoveryClient //服务注册和发现
+public class Main9527
+{
+    public static void main(String[] args)
+    {
+        SpringApplication.run(Main9527.class,args);
+    }
+}
+```
+
+不用写任何业务代码，网关与业务无关。
+
+### 9527网关做路由映射
+
+8001新建PayGateWayController
+
+```java
+@RestController
+public class PayGateWayController
+{
+    @Resource
+    PayService payService;
+
+    @GetMapping(value = "/pay/gateway/get/{id}")
+    public ResultData<Pay> getById(@PathVariable("id") Integer id)
+    {
+        Pay pay = payService.getById(id);
+        return ResultData.success(pay);
+    }
+
+    @GetMapping(value = "/pay/gateway/info")
+    public ResultData<String> getGatewayInfo()
+    {
+        return ResultData.success("gateway info test："+ IdUtil.simpleUUID());
+    }
+}
+```
+
+9527网关YML新配置
+
+```yml
+server:
+  port: 9527
+
+spring:
+  application:
+    name: cloud-gateway #以微服务注册进consul或nacos服务列表内
+  cloud:
+    consul: #配置consul地址
+      host: localhost
+      port: 8500
+      discovery:
+        prefer-ip-address: true
+        service-name: ${spring.application.name}
+    gateway:
+      routes:
+        - id: pay_routh1 #pay_routh1                #路由的ID(类似mysql主键ID)，没有固定规则但要求唯一，建议配合服务名
+          uri: http://localhost:8001                #匹配后提供服务的路由地址
+          predicates:
+            - Path=/pay/gateway/get/**              # 断言，路径相匹配的进行路由
+
+
+        - id: pay_routh2 #pay_routh2                #路由的ID(类似mysql主键ID)，没有固定规则但要求唯一，建议配合服务名
+          uri: http://localhost:8001                #匹配后提供服务的路由地址
+          predicates:
+            - Path=/pay/gateway/info/**              # 断言，路径相匹配的进行路由
+```
+
+修改OpenFeign接口
+
+```java
+/**
+     * GateWay进行网关测试案例01
+     * @param id
+     * @return
+     */
+@GetMapping(value = "/pay/gateway/get/{id}")
+public ResultData getById(@PathVariable("id") Integer id);
+
+/**
+     * GateWay进行网关测试案例02
+     * @return
+     */
+@GetMapping(value = "/pay/gateway/info")
+public ResultData<String> getGatewayInfo();
+```
+
+feign-order80新建OrderGatewayController
+
+```java
+@RestController
+public class OrderGateWayController
+{
+    @Resource
+    private PayFeignApi payFeignApi;
+
+    @GetMapping(value = "/feign/pay/gateway/get/{id}")
+    public ResultData getById(@PathVariable("id") Integer id)
+    {
+        return payFeignApi.getById(id);
+    }
+
+    @GetMapping(value = "/feign/pay/gateway/info")
+    public ResultData<String> getGatewayInfo()
+    {
+        return payFeignApi.getGatewayInfo();
+    }
+}
+```
+
+OpenFeign接口中
+
+系统内环境，直接找微服务
+
+```java
+@FeignClient(value = "cloud-payment-service")//自己人内部，自己访问自己，写微服务名字OK
+```
+
+系统外访问，先找网关在服务
+
+```java
+@FeignClient(value = "cloud-gateway")//外部
+```
+
+### Gateway高级特性
+
+#### Route以微服务名-动态获取服务URI
+
+```yml
+#修改前
+uri: http://localhost:8001
+#修改后
+uri: lb://cloud-payment-service
+```
+
+#### Predicate断言（谓词）
+
+**Spring官网：**https://docs.spring.io/spring-cloud-gateway/docs/4.0.4/reference/html/#gateway-request-predicates-factories
+
+##### 整体框架概述
+
+<img src="./assets/image-20240527105659596.png" alt="image-20240527105659596" style="zoom:67%;" />
+
+##### 常用的内置Route Predicate
+
+###### 两种配置
+
+`Shortcut Configuration`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: after_route
+        uri: https://example.org
+        predicates:
+        - Cookie=mycookie,mycookievalue
+```
+
+`Fully Expanded Arguments`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: after_route
+        uri: https://example.org
+        predicates:
+        - name: Cookie
+          args:
+            name: mycookie
+            regexp: mycookievalue
+```
+
+###### 常用断言API
+
+`After Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: after_route
+        uri: https://example.org
+        predicates:
+        - After=2017-01-20T17:42:47.789-07:00[America/Denver]
+```
+
+```java
+//获取ZonedDateTime
+public class ZonedDateTimeDemo
+{
+    public static void main(String[] args)
+    {
+        ZonedDateTime zbj = ZonedDateTime.now(); // 默认时区
+              System.out.println(zbj);
+    }
+}
+```
+
+`Before Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: before_route
+        uri: https://example.org
+        predicates:
+        - Before=2017-01-20T17:42:47.789-07:00[America/Denver]
+```
+
+`Between Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: between_route
+        uri: https://example.org
+        predicates:
+        - Between=2017-01-20T17:42:47.789-07:00[America/Denver], 2017-01-21T17:42:47.789-07:00[America/Denver]
+```
+
+`Cookie Route Predicate`
+
+Cookie Route Predicate需要两个参数，一个是 Cookie name ,一个是正则表达式。路由规则会通过获取对应的 Cookie name 值和正则表达式去匹配，如果匹配上就会执行路由，如果没有匹配上则不执行
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: cookie_route
+        uri: https://example.org
+        predicates:
+        - Cookie=chocolate, ch.p
+```
+
+`Header Route Predicate`
+
+两个参数：一个是属性名称和一个正则表达式，这个属性值和正则表达式匹配则执行。
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: header_route
+        uri: https://example.org
+        predicates:
+        - Header=X-Request-Id, \d+
+```
+
+`Host Route Predicate`
+
+Host Route Predicate 接收一组参数，一组匹配的域名列表，这个模板是一个 ant 分隔的模板，用.号作为分隔符。
+
+它通过参数中的主机地址作为匹配规则。
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: host_route
+        uri: https://example.org
+        predicates:
+        - Host=**.somehost.org,**.anotherhost.org
+```
+
+`Path Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: path_route
+        uri: https://example.org
+        predicates:
+        - Path=/red/{segment},/blue/{segment}
+```
+
+`Query Route Predicate`
+
+支持传入两个参数，一个是属性名，一个为属性值，属性值可以是正则表达式。
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: query_route
+        uri: https://example.org
+        predicates:
+        - Query=green
+```
+
+`RemoteAddr Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: remoteaddr_route
+        uri: https://example.org
+        predicates:
+        - RemoteAddr=192.168.1.1/24
+```
+
+`Method Route Predicate`
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: method_route
+        uri: https://example.org
+        predicates:
+        - Method=GET,POST
+```
+
+##### 自定义断言（XxxRoutePredicateFactory）
+
+1. 新建类名Xxx需要以RoutePredicateFactory结尾，并继承AbstractRoutePredicateFactory类。
+2. 重写apply方法。
+3. 新建apply方法所需要的静态内部类MyRoutePredicateFactory.Config，这个Config类就是我们的路由断言规则。
+4. 空参构造方法，内部调用super。
+5. 重写shortcutFieldOrder方法，来支持短格式。
+
+```java
+@Component
+public class MyRoutePredicateFactory extends AbstractRoutePredicateFactory<MyRoutePredicateFactory.Config> {
+
+    public MyRoutePredicateFactory() {
+        super(MyRoutePredicateFactory.Config.class);
+    }
+    @Override
+    public List<String> shortcutFieldOrder() {
+        return Collections.singletonList("userType");
+    }
+
+
+    @Override
+    public Predicate<ServerWebExchange> apply(Config config) {
+        return new Predicate<ServerWebExchange>() {
+            @Override
+            public boolean test(ServerWebExchange serverWebExchange) {
+                String userType = serverWebExchange.getRequest().getQueryParams().getFirst("userType");
+                if (userType == null){
+                    return false;
+                }
+                if (userType.equals(config.getUserType())){
+                    return true;
+                }
+                return false;
+            }
+        };
+    }
+
+    public static class Config {
+        @NotEmpty
+        @Getter
+        @Setter
+        private String userType;
+    }
+}
+```
+
+#### Filter过滤
+
+##### 概述
+
+**官网：**https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#gatewayfilter-factories
+
+**类型**
+
+1.全局默认过滤器`Global Filters`
+
+> https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#global-filters
+>
+> gateway出厂默认已有的，直接用即可，住哟啊作用于所有的路由，不需要在配置文件中配置，作用在所有的路由上，实现GlobalFilter接口即可
+
+2.单一内置过滤器GatewayFilter
+
+> https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#gatewayfilter-factories
+>
+> 也可以称为网关过滤器，这种过滤器主要是作用于单一路由或者某个路由分组
+
+3.自定义过滤器
+
+##### Gateway的内置过滤器
+
+官网：https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#gatewayfilter-factories
+
+修改8001微服务PayGateWayController，新增方法
+
+```java
+@GetMapping(value = "/pay/gateway/filter")
+public ResultData<String> getGatewayFilter(HttpServletRequest request)
+{
+    String result = "";
+    Enumeration<String> headers = request.getHeaderNames();
+    while(headers.hasMoreElements())
+    {
+        String headName = headers.nextElement();
+        String headValue = request.getHeader(headName);
+        System.out.println("请求头名: " + headName +"\t\t\t"+"请求头值: " + headValue);
+        if(headName.equalsIgnoreCase("X-Request-atguigu1")
+           || headName.equalsIgnoreCase("X-Request-atguigu2")) {
+            result = result+headName + "\t " + headValue +" ";
+        }
+    }
+    System.out.println("=============================================");
+    String customerId = request.getParameter("customerId");
+    System.out.println("request Parameter customerId: "+customerId);
+
+    String customerName = request.getParameter("customerName");
+    System.out.println("request Parameter customerName: "+customerName);
+    System.out.println("=============================================");
+    return ResultData.success("getGatewayFilter 过滤器 test： "+result+" \t "+ DateUtil.now());
+}
+```
+
+**常用内置过滤器**
+
+1.请求头（RequestHeader）相关组
+
+> The AddRequestHeader GatewayFilter Factory
+>
+> The Remove RequestHeader GatewayFilter Factory
+>
+> The SetRequestHeader GatewayFilter Factory
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: add_request_header_route
+        uri: https://example.org
+        filters:
+        - AddRequestHeader=X-Request-atguigu1,atguiguValue1  # 请求头kv，若一头含有多参则重写一行设置
+        - AddRequestHeader=X-Request-atguigu2,atguiguValue2
+        - RemoveRequestHeader=sec-fetch-site      # 删除请求头sec-fetch-site
+        - SetRequestHeader=sec-fetch-mode, Blue-updatebyhxm # 将请求头sec-fetch-mode对应的值修改为Blue-updatebyzzyy
+```
+
+2.请求参数（RequestParameter）相关组
+
+> The AddRequestParameter GatewayFilter Factory
+>
+> The RemoveRequestParameter GatewayFilter Factory
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: add_request_header_route
+        uri: https://example.org
+        filters:
+        - AddRequestParameter=customerId,9527001 # 新增请求参数Parameter：k ，v
+        - RemoveRequestParameter=customerName   # 删除url请求参数customerName，你传递过来也是null
+```
+
+3.回应头（ResponseHeader）相关组
+
+> The AddResponseHeader GTatewayFilter Factory
+>
+> The SetResponseHeader GatewayFilter Factory
+>
+> The RemoveResponseHeader GatewayFilter Factory
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: add_request_header_route
+        uri: https://example.org
+        filters:
+        - AddResponseHeader=X-Response-atguigu, BlueResponse # 新增请求参数X-Response-atguigu并设值为BlueResponse
+        - SetResponseHeader=Date,2099-11-11 # 设置回应头Date值为2099-11-11
+        - RemoveResponseHeader=Content-Type # 将默认自带Content-Type回应属性删除
+```
+
+4.前缀和路径相关组
+
+> The PrefixPath GatewayFilter Factory
+>
+> The SetPath GatewayFilter Factory
+>
+> The RedirectTo GatewayFilter Factory
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: add_request_header_route
+        uri: https://example.org
+        filters:
+        - PrefixPath=/pay # http://localhost:9527/pay/gateway/filter
+        - SetPath=/pay/gateway/{segment}  # {segment}表示占位符，你写abc也行但要上下一致
+        - RedirectTo=302, http://www.atguigu.com/ # 访问http://localhost:9527/pay/gateway/filter跳转到http://www.atguigu.com/
+```
+
+<img src="./assets/image-20240528194737181.png" alt="image-20240528194737181" style="zoom:67%;" />
+
+<img src="./assets/image-20240528194758063.png" alt="image-20240528194758063" style="zoom:67%;" />
+
+5.其他
+
+> Default Filters
+
+相当于将单一的配置变成全局配置
+
+<img src="./assets/image-20240528194937197.png" alt="image-20240528194937197" style="zoom:67%;" />
+
+##### Gateway的自定义过滤器
+
+###### 自定义全局Filter
+
+例：自定义接口调用耗时统计的全局过滤器
+
+官网出处：https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#gateway-combined-global-filter-and-gatewayfilter-ordering
+
+**步骤**
+
+新建类MyGlobalFilter并实现GlobalFilter，Ordered两个接口
+
+```java
+@Component
+@Slf4j
+public class MyGlobalFilter implements GlobalFilter, Ordered
+{
+
+    /**
+     * 数字越小优先级越高
+     * @return
+     */
+    @Override
+    public int getOrder()
+    {
+        return 0;
+    }
+
+    private static final String BEGIN_VISIT_TIME = "begin_visit_time";//开始访问时间
+    /**
+     *第2版，各种统计
+     * @param exchange
+     * @param chain
+     * @return
+     */
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        //先记录下访问接口的开始时间
+        exchange.getAttributes().put(BEGIN_VISIT_TIME, System.currentTimeMillis());
+
+        return chain.filter(exchange).then(Mono.fromRunnable(()->{
+            Long beginVisitTime = exchange.getAttribute(BEGIN_VISIT_TIME);
+            if (beginVisitTime != null){
+                log.info("访问接口主机: " + exchange.getRequest().getURI().getHost());
+                log.info("访问接口端口: " + exchange.getRequest().getURI().getPort());
+                log.info("访问接口URL: " + exchange.getRequest().getURI().getPath());
+                log.info("访问接口URL参数: " + exchange.getRequest().getURI().getRawQuery());
+                log.info("访问接口时长: " + (System.currentTimeMillis() - beginVisitTime) + "ms");
+                log.info("我是美丽分割线: ###################################################");
+                System.out.println();
+            }
+        }));
+    }
+
+}
+```
+
+yml中配置的所有网关都会被这个全局过滤器过滤一遍，因此可以统计出每个接口的调用的时长。
+
+###### 自定义条件（单一）Filter
+
+模仿内置的单一过滤器
+
+**步骤**
+
+新建类名Xxx需要以GatewayFilterFactory结尾，并继承AbstractGatewayFilterFactory类。
+
+```java
+@Component //标注不可忘
+public class MyGatewayFilterFactory extends AbstractGatewayFilterFactory<MyGatewayFilterFactory.Config>
+{
+}
+```
+
+新建XxxGatewayFilterFactory.Config静态内部类
+
+```java
+@Component
+public class MyGatewayFilterFactory extends AbstractGatewayFilterFactory<MyGatewayFilterFactory.Config>
+{
+    public static class Config {
+        @Setter @Getter
+        private String status;
+    }
+}
+```
+
+重写apply方法
+
+```java
+@Component
+public class MyGatewayFilterFactory extends AbstractGatewayFilterFactory<MyGatewayFilterFactory.Config>
+{
+    @Override
+    public GatewayFilter apply(MyGatewayFilterFactory.Config config)
+    {
+        return new GatewayFilter() {
+            @Override
+            public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+                ServerHttpRequest request =  exchange.getRequest();
+                System.out.println("进入自定义网关过滤器MyGatewayFilterFactory，status===="+config.getStatus());
+                if(request.getQueryParams().containsKey("atguigu")) {
+                    return chain.filter(exchange);
+                }else {
+                    exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+                    return exchange.getResponse().setComplete();
+                }
+            }
+        };
+    }
+
+    public static class Config {
+        @Setter @Getter
+        private String status;
+    }
+}
+```
+
+重写shortcutFieldOrder
+
+```java
+@Override
+public List<String> shortcutFieldOrder() {
+    List<String> list = new ArrayList<String>();
+    list.add("status");
+    return list;
+}
+```
+
+空参构造器
+
+```java
+public MyGatewayFilterFactory() {
+    super(MyGatewayFilterFactory.Config.class);
+}
+```
+
+完整代码
+
+```java
+@Component
+public class MyGatewayFilterFactory extends AbstractGatewayFilterFactory<MyGatewayFilterFactory.Config>
+{
+    public MyGatewayFilterFactory()
+    {
+        super(MyGatewayFilterFactory.Config.class);
+    }
+
+
+    @Override
+    public GatewayFilter apply(MyGatewayFilterFactory.Config config)
+    {
+        return new GatewayFilter()
+        {
+            @Override
+            public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain)
+            {
+                ServerHttpRequest request = exchange.getRequest();
+                System.out.println("进入了自定义网关过滤器MyGatewayFilterFactory，status："+config.getStatus());
+                if(request.getQueryParams().containsKey(config.getStatus())){
+                    return chain.filter(exchange);
+                }else{
+                    exchange.getResponse().setStatusCode(HttpStatus.BAD_REQUEST);
+                    return exchange.getResponse().setComplete();
+                }
+            }
+        };
+    }
+
+    @Override
+    public List<String> shortcutFieldOrder() {
+        return Arrays.asList("status");
+    }
+
+    public static class Config
+    {
+        @Getter@Setter
+        private String status;//设定一个状态值/标志位，它等于多少，匹配和才可以访问
+    }
+}
+```
+
+yml
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: add_request_header_route
+        uri: https://example.org
+        filters:
+        - My=atguigu
+```
+
+补充说明
+
+<img src="./assets/image-20240528200138044.png" alt="image-20240528200138044" style="zoom:67%;" />
