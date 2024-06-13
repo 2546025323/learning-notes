@@ -3155,3 +3155,1069 @@ spring:
 补充说明
 
 <img src="./assets/image-20240528200138044.png" alt="image-20240528200138044" style="zoom:67%;" />
+
+## 10.SpringCloud Alibaba入门简介
+
+**Spring官网：**https://spring.io/projects/spring-cloud-alibaba
+
+**Github中文介绍：**https://github.com/alibaba/spring-cloud-alibaba/blob/2022.x/README-zh.md
+
+**官方文档：**https://sca.aliyun.com/docs/2023/overview/what-is-sca/?spm=5176.29160081.0.0.74802615KDJy3r
+
+**开发参考文档：**https://spring-cloud-alibaba-group.github.io/github-pages/2022/zh-cn/2022.0.0.0-RC2.html
+
+## 11.SpringCloud Alibaba Nacos服务注册和配置中心
+
+### 简介
+
+`Nacos：Dynamic Naming and Configuration Service`
+
+**官网：**https://nacos.io/zh-cn/index.html
+
+**各种注册中心比较**
+
+Nacos默认是AP模式，但也可以调整切换为CP，我们一般用默认AP即可。
+
+<img src="./assets/image-20240603094929315.png" alt="image-20240603094929315" style="zoom:67%;" />
+
+### 下载安装
+
+> https://nacos.io/zh-cn/index.html
+>
+> https://nacos.io/docs/v2/quickstart/quick-start/
+>
+> https://github.com/alibaba/nacos/releases
+
+下载后解压安装包，直接运行bin目录下的startup.cmd。或者在bin目录下运行使用cmd以命令行窗口方式打开。输入：
+
+```shell
+//代表单机模式运行
+startup.cmd -m standalone
+```
+
+启动成功后，访问：http://localhost:8848/nacos
+
+关闭服务器：双击`shutdown.cmd`
+
+### 服务注册中心 
+
+概述：https://nacos.io/docs/v2/ecology/use-nacos-with-spring-cloud/
+
+#### 基于Nacos的服务提供者
+
+新建Module：`cloudalibaba-provideer-payment9001`
+
+POM
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.atguigu.cloud</groupId>
+        <artifactId>mscloudV5</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>cloudalibaba-provider-payment9001</artifactId>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+
+
+    <dependencies>
+        <!--nacos-discovery-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- 引入自己定义的api通用包 -->
+        <dependency>
+            <groupId>com.atguigu.cloud</groupId>
+            <artifactId>cloud-api-commons</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!--SpringBoot通用依赖模块-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--hutool-->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.28</version>
+            <scope>provided</scope>
+        </dependency>
+        <!--test-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+
+YML
+
+```yaml
+server:
+  port: 9001
+
+spring:
+  application:
+    name: nacos-payment-provider
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 #配置Nacos地址
+```
+
+主启动
+
+```java
+@SpringBootApplication
+@EnableDiscoveryClient
+public class Main9001
+{
+    public static void main(String[] args)
+    {
+        SpringApplication.run(Main9001.class,args);
+    }
+}
+```
+
+业务类
+
+```java
+@RestController
+public class PayAlibabaController
+{
+    @Value("${server.port}")
+    private String serverPort;
+
+    @GetMapping(value = "/pay/nacos/{id}")
+    public String getPayInfo(@PathVariable("id") Integer id)
+    {
+        return "nacos registry, serverPort: "+ serverPort+"\t id"+id;
+    }
+}
+```
+
+测试：http://localhost:9001/pay/nacos/11
+
+#### 基于Nacos的服务消费者
+
+新建Module：`cloudalibaba-consumer-nacos-order83`
+
+POM
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.atguigu.cloud</groupId>
+        <artifactId>mscloudV5</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>cloudalibaba-consumer-nacos-order83</artifactId>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+
+    <dependencies>
+        <!--nacos-discovery-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!--loadbalancer-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+        <!--web + actuator-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+YML
+
+```yml
+
+server:
+  port: 83
+
+spring:
+  application:
+    name: nacos-order-consumer
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+#消费者将要去访问的微服务名称(nacos微服务提供者叫什么你写什么)
+service-url:
+  nacos-user-service: http://nacos-payment-provider
+```
+
+主启动
+
+```java
+@EnableDiscoveryClient
+@SpringBootApplication
+public class Main83
+{
+    public static void main(String[] args)
+    {
+        SpringApplication.run(Main83.class,args);
+    }
+}
+```
+
+业务类
+
+```java
+@Configuration
+public class RestTemplateConfig
+{
+    @Bean
+    @LoadBalanced //赋予RestTemplate负载均衡的能力
+    public RestTemplate restTemplate()
+    {
+        return new RestTemplate();
+    }
+}
+```
+
+```java
+@RestController
+public class OrderNacosController
+{
+    @Resource
+    private RestTemplate restTemplate;
+
+    @Value("${service-url.nacos-user-service}")
+    private String serverURL;
+
+    @GetMapping("/consumer/pay/nacos/{id}")
+    public String paymentInfo(@PathVariable("id") Integer id)
+    {
+        String result = restTemplate.getForObject(serverURL + "/pay/nacos/" + id, String.class);
+        return result+"\t"+"    我是OrderNacosController83调用者。。。。。。";
+    }
+}
+```
+
+测试：http://localhost:83/consumer/pay/nacos/14
+
+#### 负载均衡
+
+拷贝虚拟端口映射
+
+![image-20240603144005868](./assets/image-20240603144005868.png)
+
+<img src="./assets/image-20240603144032821.png" alt="image-20240603144032821" style="zoom:67%;" />
+
+### 服务配置中心
+
+#### 案例
+
+新建Module：`cloudalibaba-config-nacos-client3377`
+
+POM
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>mscloudV3</artifactId>
+        <groupId>com.atguigu.cloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>cloudalibaba-config-nacos-client3377</artifactId>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+
+
+    <dependencies>
+        <!--bootstrap-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bootstrap</artifactId>
+        </dependency>
+        <!--nacos-config-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+        <!--nacos-discovery-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!--web + actuator-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--lombok-->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+YML
+
+bootstrap.yml
+
+```yml
+# nacos配置
+spring:
+  application:
+    name: nacos-config-client
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 #Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848 #Nacos作为配置中心地址
+        file-extension: yaml #指定yaml格式的配置
+
+# nacos端配置文件DataId的命名规则是：
+# ${spring.application.name}-${spring.profile.active}.${spring.cloud.nacos.config.file-extension}
+# 本案例的DataID是:nacos-config-client-dev.yaml
+```
+
+applicaton.yml
+
+```yml
+server:
+  port: 3377
+
+spring:
+  profiles:
+    active: dev # 表示开发环境
+       #active: prod # 表示生产环境
+       #active: test # 表示测试环境
+```
+
+主启动
+
+```java
+@EnableDiscoveryClient
+@SpringBootApplication
+public class NacosConfigClient3377
+{
+    public static void main(String[] args)
+    {
+        SpringApplication.run(NacosConfigClient3377.class,args);
+    }
+}
+```
+
+业务类
+
+```java
+@RestController
+@RefreshScope //在控制器类加入@RefreshScope注解使当前类下的配置支持Nacos的动态刷新功能。
+public class NacosConfigClientController
+{
+    @Value("${config.info}")
+    private String configInfo;
+
+    @GetMapping("/config/info")
+    public String getConfigInfo() {
+        return configInfo;
+    }
+}
+```
+
+在Nacos中添加配置信息
+
+DataId公式
+
+```
+${spring.application.name}-${spring.profile.active}.${spring.cloud.nacos.config.file-extension}
+```
+
+<img src="./assets/image-20240603145734208.png" alt="image-20240603145734208" style="zoom:67%;" />
+
+创建配置文件
+
+<img src="./assets/image-20240603145926439.png" alt="image-20240603145926439" style="zoom:67%;" />
+
+测试：http://localhost:3377/config/info
+
+Nacos自带动态刷新和回滚
+
+<img src="./assets/image-20240603150031164.png" alt="image-20240603150031164" style="zoom:67%;" />
+
+### 数据模型之Namespace-Group-DataId
+
+**官网：**https://nacos.io/zh-cn/docs/architecture.html
+
+#### Namespace+Group+DataId三者关系
+
+<img src="./assets/image-20240603150754889.png" alt="image-20240603150754889" style="zoom:67%;" />
+
+<img src="./assets/image-20240603150831696.png" alt="image-20240603150831696" style="zoom:67%;" />
+
+| 1 是什么          | 类似Java里面的package名和类名，最外层的Namespace是可以用于区分部署环境的，Group和DataID逻辑上区分两个目标对象 |
+| ----------------- | ------------------------------------------------------------ |
+| 2 默认值          | 默认情况：Namespace=public，Group=DEFAULT_GROUPNacos默认的命名空间是public，Namespace主要用来实现隔离。比方说我们现在有三个环境：开发、测试、生产环境，我们就可以创建三个Namespace，不同的Namespace之间是隔离的。Group默认是DEFAULT_GROUP，Group可以把不同的微服务划分到同一个分组里面去 |
+| Service就是微服务 | 一个Service可以包含一个或者多个Cluster（集群），Nacos默认Cluster是DEFAULT，Cluster是对指定微服务的一个虚拟划分。见下一节：服务领域模型-补充说明 |
+
+#### DataID方案
+
+指定`spring.profile.active`和 配置文件的`DataID`来使不同环境下读取不同的配置。
+
+默认空间public + 默认分组DEFAULT_GROUP + 新建DataID
+
+新建test配置DataID。
+
+<img src="./assets/image-20240603151612893.png" alt="image-20240603151612893" style="zoom:67%;" />
+
+修改YML
+
+bootstrap.yml
+
+```yml
+# nacos配置 第一种:默认空间+默认分组+新建DataID
+spring:
+  application:
+    name: nacos-config-client
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 #Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848 #Nacos作为配置中心地址
+        file-extension: yaml #指定yaml格式的配置
+
+# nacos端配置文件DataId的命名规则是：
+# ${spring.application.name}-${spring.profile.active}.${spring.cloud.nacos.config.file-extension}
+# 本案例的DataID是:nacos-config-client-dev.yaml
+```
+
+application.yml
+
+```yml
+server:
+  port: 3377
+
+spring:
+  profiles:
+    #active: dev # 表示开发环境
+    active: test # 表示测试环境
+    #active: prod # 表示生产环境
+```
+
+测试：http://localhost:3377/config/info
+
+#### Group方案 
+
+通过Group实现环境区分，默认空间public  + 新建PROD_GROUP + 新建DataID。
+
+修改YML
+
+bootstrap.yml
+
+```yml
+# nacos配置 第2种:默认空间+新建分组+新建DataID
+spring:
+  application:
+    name: nacos-config-client
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 #Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848 #Nacos作为配置中心地址
+        file-extension: yaml #指定yaml格式的配置
+        group: PROD_GROUP
+
+# nacos端配置文件DataId的命名规则是：
+# ${spring.application.name}-${spring.profile.active}.${spring.cloud.nacos.config.file-extension}
+# 本案例的DataID是:nacos-config-client-dev.yaml
+```
+
+application.yml
+
+```yml
+server:
+  port: 3377
+
+spring:
+  profiles:
+    #active: dev # 表示开发环境
+    #active: test # 表示测试环境
+    active: prod # 表示生产环境
+```
+
+#### Namespace方案
+
+新建Namespace：Prod_Namespace
+
+新建Namespace但命名空间ID不填（系统自动生产）：Prod_Namespace2
+
+修改YML
+
+bootstrap.yml
+
+```yml
+# nacos配置 第3种:新建空间+新建分组+新建DataID
+spring:
+  application:
+    name: nacos-config-client
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848 #Nacos服务注册中心地址
+      config:
+        server-addr: localhost:8848 #Nacos作为配置中心地址
+        file-extension: yaml #指定yaml格式的配置
+        group: PROD_GROUP
+        namespace: Prod_Namespace
+
+# nacos端配置文件DataId的命名规则是：
+# ${spring.application.name}-${spring.profile.active}.${spring.cloud.nacos.config.file-extension}
+# 本案例的DataID是:nacos-config-client-dev.yaml
+```
+
+application.yml
+
+```yml
+server:
+  port: 3377
+
+spring:
+  profiles:
+    #active: dev # 表示开发环境
+    #active: test # 表示测试环境
+    active: prod # 表示生产环境
+```
+
+## 12.SpringCloud Alibaba Sentinel实现熔断与限流
+
+### Sentinel
+
+**官网：**https://sentinelguard.io/zh-cn
+
+**Github：**https://github.com/alibaba/Sentinel
+
+**下载：**https://github.com/alibaba/Sentinel/releases
+
+**简介**
+
+Sentinel的特征
+
+丰富的应用场景：Sentinel 承接了阿里巴巴近 10 年的双十一大促流量的核心场景，例如秒杀（即突发流量控制在系统容量可以承受的范围）、消息削峰填谷、集群流量控制、实时熔断下游不可用应用等。
+
+完备的实时监控：Sentinel 同时提供实时的监控功能。您可以在控制台中看到接入应用的单台机器秒级数据，甚至 500 台以下规模的集群的汇总运行情况。
+
+广泛的开源生态：Sentinel 提供开箱即用的与其它开源框架/库的整合模块，例如与 Spring Cloud、Apache Dubbo、gRPC、Quarkus 的整合。您只需要引入相应的依赖并进行简单的配置即可快速地接入 Sentinel。同时 Sentinel 提供 Java/Go/C++ 等多语言的原生实现。
+
+完善的 SPI 扩展机制：Sentinel 提供简单易用、完善的 SPI 扩展接口。您可以通过实现扩展接口来快速地定制逻辑。例如定制规则管理、适配动态数据源等。
+
+Sentinel的主要特性
+
+<img src="./assets/image-20240612200447441.png" alt="image-20240612200447441" style="zoom:67%;" />
+
+### 安装Sentinel
+
+Sentinel 分为两个部分:
+
+- 核心库（Java 客户端 : 8719）不依赖任何框架/库，能够运行于所有 Java 运行时环境，同时对 Dubbo / Spring Cloud 等框架也有较好的支持。
+- 控制台（Dashboard : 8080）基于 Spring Boot 开发，打包后可以直接运行，不需要额外的 Tomcat 等应用容器。
+
+运行Sentinel
+
+前提：Java环境ok，8080端口不能别占用
+
+```shell
+java -jar sentinel-dashboard-1.8.6.jar
+```
+
+访问sentinel管理界面
+
+```tex
+http://localhosst:8080
+
+登录账号密码均为sentinel
+```
+
+### 微服务8401整合Sentinel
+
+#### 启动Nacos8848
+
+在nacos的bin目录下，用命令行窗口启动nacos`startup.cmd -m standalone`，并访问`http://localhost:8848/nacos/#/login`
+
+<img src="./assets/image-20240612201832656.png" alt="image-20240612201832656" style="zoom:67%;" />
+
+#### 启动Sentinel8080
+
+在含有sentinel-dashboard-1.8.6.jar的目录下，用命令行窗口运行`java -jar sentinel-dashboard-1.8.6.jar`，并访问`http://localhosst:8080`打开控制面板
+
+<img src="./assets/image-20240612202003063.png" alt="image-20240612202003063" style="zoom:67%;" />
+
+#### 新建微服务8401
+
+**新建Module：**`cloudalibaba-sentinel-service8401`
+
+**POM**
+
+```xml
+<dependencies>
+    <!--SpringCloud alibaba sentinel -->
+    <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+    </dependency>
+    <!--nacos-discovery-->
+    <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+    </dependency>
+    <!-- 引入自己定义的api通用包 -->
+    <dependency>
+        <groupId>com.atguigu.cloud</groupId>
+        <artifactId>cloud-api-commons</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </dependency>
+    <!--SpringBoot通用依赖模块-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!--hutool-->
+    <dependency>
+        <groupId>cn.hutool</groupId>
+        <artifactId>hutool-all</artifactId>
+    </dependency>
+    <!--lombok-->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <version>1.18.28</version>
+        <scope>provided</scope>
+    </dependency>
+    <!--test-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+    </plugins>
+</build>
+```
+
+**YML**
+
+```yml
+server:
+  port: 8401
+
+spring:
+  application:
+    name: cloudalibaba-sentinel-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848         #Nacos服务注册中心地址
+    sentinel:
+      transport:
+        dashboard: localhost:8080 #配置Sentinel dashboard控制台服务地址
+        port: 8719 #默认8719端口，假如被占用会自动从8719开始依次+1扫描,直至找到未被占用的端口
+```
+
+**主启动**
+
+```java
+@EnableDiscoveryClient
+@SpringBootApplication
+public class Main8401
+{
+    public static void main(String[] args)
+    {
+        SpringApplication.run(Main8401.class,args);
+    }
+}
+```
+
+**业务类FlowLimitController**
+
+```java
+@RestController
+public class FlowLimitController
+{
+
+    @GetMapping("/testA")
+    public String testA()
+    {
+        return "------testA";
+    }
+
+    @GetMapping("/testB")
+    public String testB()
+    {
+        return "------testB";
+    }
+}
+```
+
+Sentinel采用的懒加载模式，想要使用Sentinel对某个接口进行限流和降级等操作，一定要访问下接口，使Sentinel检测出相应的接口
+
+### 流控规则
+
+Sentinel能够对流量进行控制，主要是监控应用的QPS流量或者并发线程数等指标，如果达到指定的阈值时，就会被流量进行控制，以避免服务被瞬时的高并发流量击垮，保证服务的高可靠性。参数见最下方：
+
+<img src="./assets/image-20240612202833319.png" alt="image-20240612202833319" style="zoom:67%;" />
+
+|          |                                                              |
+| -------- | ------------------------------------------------------------ |
+| 资源名   | 资源的唯一名称，默认就是请求的接口路径，可以自行修改，但是要保证唯一。 |
+| 针对来源 | 具体针对某个微服务进行限流，默认值为default，表示不区分来源，全部限流。 |
+| 阈值类型 | QPS表示通过QPS进行限流，并发线程数表示通过并发线程数限流。   |
+| 单机阈值 | 与阈值类型组合使用。如果阈值类型选择的是QPS，表示当调用接口的QPS达到阈值时，进行限流操作。如果阈值类型选择的是并发线程数，则表示当调用接口的并发线程数达到阈值时，进行限流操作。 |
+| 是否集群 | 选中则表示集群环境，不选中则表示非集群环境。                 |
+
+#### 流控模式
+
+##### 直接
+
+默认的流控模式，当接口达到限流条件时，直接开启限流功能。
+
+> 表示1秒钟内查询1次就是OK，若超过次数1，就直接-快速失败，报默认错误
+>
+> <img src="./assets/image-20240612203422039.png" alt="image-20240612203422039" style="zoom:67%;" />
+
+测试
+
+> 快速点击访问`http://localhost:8401/testA`
+>
+> 结果：`Blocked by Sentinel (flow limiting)`
+
+##### 关联
+
+当关联的资源达到阈值时，就限流自己。即当与A关联的资源B达到阈值后，就限流A自己
+
+> 当关联资源/testB的qps阀值超过1时，就限流/testA的Rest访问地址，当关联资源到阈值后限制配置好的资源名，B惹事，A挂了
+>
+> <img src="./assets/image-20240612203907423.png" alt="image-20240612203907423" style="zoom:67%;" />
+
+测试
+
+Jmeter模拟并发密集访问testB
+
+> <img src="./assets/image-20240612204100946.png" alt="image-20240612204100946" style="zoom:67%;" />
+>
+> <img src="./assets/image-20240612204126786.png" alt="image-20240612204126786" style="zoom:67%;" />
+
+> 点击访问`http://localhost:8401/testA`
+>
+> 结果：`Blocked by Sentinel (flow limiting)`
+>
+> 大批量线程高并发访问B，导致B达到阈值，使得A限流失效了
+
+##### 链路
+
+来自不同链路的请求对同一个目标访问时，实施针对性的不同限流措施，比如C请求来访问就限流，D请求来就OK
+
+> 说明：C和D两个请求都访问**flowLimitService**.common()方法，对C限流，对D不管
+>
+> <img src="./assets/image-20240612204550996.png" alt="image-20240612204550996" style="zoom:67%;" />
+
+测试
+
+修改`cloudalibaba-sentinel-sservice8401`
+
+yml
+
+```yml
+server:
+  port: 8401
+
+spring:
+  application:
+    name: cloudalibaba-sentinel-service #8401微服务提供者后续将会被纳入阿里巴巴sentinel监管
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848         #Nacos服务注册中心地址
+    sentinel:
+      transport:
+        dashboard: localhost:8080 #配置Sentinel dashboard控制台服务地址
+        port: 8719 #默认8719端口，假如被占用会自动从8719开始依次+1扫描,直至找到未被占用的端口
+      web-context-unify: false # controller层的方法对service层调用不认为是同一个根链路
+```
+
+新建FlowLimitService
+
+```java
+@Service
+public class FlowLimitService
+{
+    @SentinelResource(value = "common")
+    public void common()
+    {
+        System.out.println("------FlowLimitService come in");
+    }
+}
+```
+
+修改FlowLimitController
+
+```java
+/**流控-链路演示demo
+     * C和D两个请求都访问flowLimitService.common()方法，阈值到达后对C限流，对D不管
+     */
+@Resource private FlowLimitService flowLimitService;
+
+@GetMapping("/testC")
+public String testC()
+{
+    flowLimitService.common();
+    return "------testC";
+}
+@GetMapping("/testD")
+public String testD()
+{
+    flowLimitService.common();
+    return "------testD";
+}
+```
+
+> 访问：`http://localhost:8401/testC`
+>
+> 结果：限流
+>
+> 访问：`http://localhost:8401/testD`
+>
+> 结果：OK
+
+#### 流控效果
+
+##### 快速失败
+
+直接失败，抛出异常。`Blocked by Sentinel (flow limiting)`
+
+##### 预热Warm Up
+
+限流 冷启动：[限流 冷启动 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/限流---冷启动)
+
+公式：默认 `coldFactor` 为 3，即请求 QPS 从 `threshold / 3` 开始，经预热时长逐渐升至设定的 QPS 阈值。
+
+源码：`com.alibaba.csp.sentinel.slots.block.flow.controller.WarmUpController`
+
+WarmUp配置
+
+> | **默认 coldFactor 为 3，即请求QPS从(threshold / 3) 开始，经多少预热时长才逐渐升至设定的 QPS 阈值。** |
+> | ------------------------------------------------------------ |
+> | 案例，单机阈值为10，预热时长设置5秒。系统初始化的阈值为10 / 3 约等于3,即单机阈值刚开始为3(我们人工设定单机阈值是10，sentinel计算后QPS判定为3开始)；然后过了5秒后阀值才慢慢升高恢复到设置的单机阈值10，也就是说5秒钟内QPS为3，过了保护期5秒后QPS为10 |
+>
+> <img src="./assets/image-20240612205543399.png" alt="image-20240612205543399" style="zoom:67%;" />
+
+测试
+
+> 快速点击：`http://localhost:8401/testB`
+>
+> 结果：刚开始限流，5s后不限流了
+
+##### 排队等待
+
+<img src="./assets/image-20240612205822944.png" alt="image-20240612205822944" style="zoom:67%;" />
+
+修改FlowLimitController
+
+```java
+@GetMapping("/testE")
+public String testE()
+{
+    System.out.println(System.currentTimeMillis()+"      testE,排队等待");
+    return "------testE";
+}
+```
+
+sentinel配置
+
+> 按照单机阈值，一秒钟通过一个请求，10秒后的请求作为超时处理，放弃，若单机阈值为2，则一秒钟通过两个请求，以此类推。
+>
+> <img src="./assets/image-20240612210005635.png" alt="image-20240612210005635" style="zoom:67%;" />
+
+测试
+
+> 使用jmeter模拟访问`http://localhost:8401/testE`
+>
+> <img src="./assets/image-20240612210055392.png" alt="image-20240612210055392" style="zoom:67%;" />
+>
+> 结果：只通过了10个左右的访问请求
+>
+> <img src="./assets/image-20240612210133955.png" alt="image-20240612210133955" style="zoom:67%;" />
+
+#### 流控效果V2（并发线程数）
+
+sentinel配置
+
+> <img src="./assets/image-20240612210353018.png" alt="image-20240612210353018" style="zoom:67%;" />
+
+### 熔断规则
+
+**官网：**[熔断降级 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/熔断降级)
+
+<img src="./assets/image-20240613104818839.png" alt="image-20240613104818839" style="zoom:67%;" />
+
+进入熔断状态判断依据：在统计时长内，实际请求数目＞设定的最小请求数  且   实际慢调用比例＞比例阈值 ，进入熔断状态。
+
+<img src="./assets/image-20240613164436027.png" alt="image-20240613164436027" style="zoom:67%;" />
+
+1.调用：一个请求发送到服务器，服务器给与响应，一个响应就是一个调用。
+
+2.最大RT：即最大的响应时间，指系统对请求作出响应的业务处理时间。
+
+3.慢调用：处理业务逻辑的实际时间>设置的最大RT时间，这个调用叫做慢调用。
+
+4.慢调用比例：在所以调用中，慢调用占有实际的比例＝慢调用次数➗总调用次数
+
+5.比例阈值：自己设定的 ， 比例阈值＝慢调用次数➗调用次数
+
+6.统计时长：时间的判断依据
+
+7.最小请求数：设置的调用最小请求数，上图比如1秒钟打进来10个线程（大于我们配置的5个了）调用被触发
+
+#### 慢调用比例
+
+<img src="./assets/image-20240613164516588.png" alt="image-20240613164516588" style="zoom:67%;" />
+
+#### 异常比例
+
+不配置Sentinel，对于int age=10/0，调一次错一次报错error，页面报【Whitelabel Error Page】或全局异常 
+
+配置Sentinel，对于int age=10/0，如符合如下异常比例启动熔断，页面报【Blocked by Sentinel (flow limiting)】
+
+<img src="./assets/image-20240613164540095.png" alt="image-20240613164540095" style="zoom:67%;" />
+
+#### 异常数
+
+<img src="./assets/image-20240613164605437.png" alt="image-20240613164605437" style="zoom:67%;" />
+
+### @SentinelResource注解
+
+
+
+### 热点规则
+
+
+
+### 授权规则
+
+
+
+### 规则持久化
+
+
+
+### OpenFeign和Sentinel集成实现fallback服务降级
+
+
+
+### GateWay和Sentinel集成实现服务限流
+
+
+
+
+
+## 13.SpringCloud Alibaba Seata处理分布式事务
+
